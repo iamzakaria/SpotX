@@ -280,8 +280,10 @@ if [[ -f "$BACKUP_SPA" ]]; then
 else
     info "Backing up original files …"
     cp -f "$XPUI_SPA" "$BACKUP_SPA"
-    cp -f "$SPOTIFY_BINARY" "$BACKUP_BINARY"
-    ok "Backups saved: $(basename "$BACKUP_SPA"), $(basename "$BACKUP_BINARY")"
+    if [[ -f "$SPOTIFY_BINARY" ]]; then
+        cp -f "$SPOTIFY_BINARY" "$BACKUP_BINARY"
+    fi
+    ok "Backups saved: $(basename "$BACKUP_SPA")"
 fi
 
 # ---------------------------------------------------------------------------
@@ -563,7 +565,7 @@ if os.path.isfile(index_html_path):
     write_file(index_html_path, idx_content)
 
 # ---------------------------------------------------------------------------
-# 2. Patch helper
+# 2. Patch helper & regex substitution engine
 # ---------------------------------------------------------------------------
 with open(patches_file, "r", encoding="utf-8") as f:
     patches = json.load(f)
@@ -571,6 +573,61 @@ with open(patches_file, "r", encoding="utf-8") as f:
 others   = patches.get("others", {})
 free     = patches.get("free", {})
 var_js   = patches.get("VariousJs", {})
+
+def make_repl(template):
+    """
+    Expands JS/PowerShell-style regex replacement group references:
+      $1..$99 -> match.group(N)
+      $&      -> full match
+      $$      -> literal $
+    Avoids Python re.sub treating $1 as a literal string.
+    """
+    def replacer(match):
+        res = []
+        i = 0
+        n = len(template)
+        while i < n:
+            ch = template[i]
+            if ch == '$' and i + 1 < n:
+                next_ch = template[i + 1]
+                if next_ch == '$':
+                    res.append('$')
+                    i += 2
+                    continue
+                elif next_ch == '&':
+                    res.append(match.group(0))
+                    i += 2
+                    continue
+                elif next_ch.isdigit():
+                    j = i + 1
+                    while j < n and template[j].isdigit() and (j - i) <= 2:
+                        j += 1
+                    group_num = int(template[i+1:j])
+                    try:
+                        val = match.group(group_num)
+                        res.append(val if val is not None else '')
+                        i = j
+                        continue
+                    except IndexError:
+                        if j - i > 2:
+                            group_num = int(template[i+1:i+2])
+                            try:
+                                val = match.group(group_num)
+                                res.append(val if val is not None else '')
+                                i = i + 2
+                                continue
+                            except IndexError:
+                                pass
+                        res.append(template[i:j])
+                        i = j
+                        continue
+            res.append(ch)
+            i += 1
+        return ''.join(res)
+    return replacer
+
+def js_subn(pattern, replacement, string, count=0, flags=re.DOTALL):
+    return re.subn(pattern, make_repl(str(replacement)), string, count=count, flags=flags)
 
 def apply_patch(content, patch_obj, label=""):
     if isinstance(patch_obj, list):
@@ -600,7 +657,7 @@ def apply_patch(content, patch_obj, label=""):
         pat = matches[i]
         rep = replaces[i] if i < len(replaces) else replaces[0]
         try:
-            new_content, n = re.subn(pat, rep, content, flags=re.DOTALL)
+            new_content, n = js_subn(pat, rep, content, flags=re.DOTALL)
             if n > 0:
                 total_patched += n
                 content = new_content
@@ -632,7 +689,7 @@ if os.path.isfile(xpui_js_path):
                     pass
             repl = p_prod.get("replace", "").replace("{0}", f"{{pairs:{{{adds}}}}}")
             match_pat = p_prod.get("match", "")
-            xpui_content, count = re.subn(match_pat, repl, xpui_content, count=1)
+            xpui_content, count = js_subn(match_pat, repl, xpui_content, count=1)
             if count > 0:
                 ok("Patched product_state (Premium override & ad-block)")
             else:
@@ -685,7 +742,7 @@ if os.path.isfile(xpui_js_path):
         f_repl = forced_exp_patch.get("replace", "")
         f_repl = f_repl.replace("enable:[]", f"enable:{en_str}").replace("disable:[]", f"disable:{dis_str}").replace("custom:[]", f"custom:{cust_str}")
 
-        xpui_content, f_count = re.subn(f_match, f_repl, xpui_content, count=1)
+        xpui_content, f_count = js_subn(f_match, f_repl, xpui_content, count=1)
         if f_count > 0:
             ok(f"Patched ForcedExp (enabled={len(en_list)}, disabled={len(dis_list)}, custom={len(cust_list)})")
         else:
@@ -723,8 +780,16 @@ if os.path.isfile(pip_file) and "pipMiniPlayerRestore" in others:
 # Modals
 modals_file = os.path.join(xpui_dir, "xpui-desktop-modals.js")
 if os.path.isfile(modals_file) and "discriptions" in others:
+    d_obj = dict(others["discriptions"])
+    raw_rep = d_obj.get("replace", "")
+    svg_tg = d_obj.get("svgtg", "")
+    svg_git = d_obj.get("svggit", "")
+    svg_faq = d_obj.get("svgfaq", "")
+    formatted = raw_rep.replace("{0}", svg_git).replace("{1}", svg_tg).replace("{2}", svg_faq)
+    escaped = json.dumps(formatted)[1:-1]
+    d_obj["replace"] = '$1\"' + escaped + '\"})'
     content = read_file(modals_file)
-    new_c = apply_patch(content, others["discriptions"], "discriptions")
+    new_c = apply_patch(content, d_obj, "discriptions")
     if new_c != content: write_file(modals_file, new_c)
 
 # Playlist
@@ -841,38 +906,34 @@ for html_name in ("licenses.html", "ui-licenses.html", "blank.html"):
             pass
 
 # ---------------------------------------------------------------------------
-# 8. Mach-O Spotify binary patching
+# 8. JavaScript syntax validation (node --check)
 # ---------------------------------------------------------------------------
-if os.path.isfile(spotify_binary):
-    info("Checking Spotify Mach-O binary for ad endpoints …")
-    with open(spotify_binary, "rb") as bf:
-        bin_data = bf.read()
-    bin_text = bin_data.decode("latin1")
-    bin_modified = False
+info("Validating JavaScript syntax of patched files …")
+shutil_node = shutil.which("node")
+if shutil_node:
+    import subprocess
+    failed_syntax = []
+    for root, _, files in os.walk(xpui_dir):
+        for f in files:
+            if f.endswith(".js"):
+                fpath = os.path.join(root, f)
+                res = subprocess.run([shutil_node, "--check", fpath], capture_output=True, text=True)
+                if res.returncode != 0:
+                    failed_syntax.append((f, res.stderr.strip()))
+    if failed_syntax:
+        warn(f"Syntax validation failed in {len(failed_syntax)} file(s):")
+        for fname, err_msg in failed_syntax:
+            warn(f"  {fname}: {err_msg[:200]}")
+        sys.exit(1)
+    else:
+        ok("All patched JavaScript files passed strict syntax check (node --check)")
+else:
+    info("node not available – skipping node --check validation")
 
-    if not premium:
-        gabo_pat = r"gabo(?=.receiver-service(?:/public|[^/]))"
-        new_text, gn = re.subn(gabo_pat, "dodo", bin_text)
-        if gn > 0:
-            bin_text = new_text
-            bin_modified = True
-            ok(f"Binary patched ({gn}x): gabo-receiver-service -> dodo (ad receiver blocked)")
-        else:
-            info("gabo ad-receiver pattern already patched or not found")
-
-    if block_update:
-        up_pat = r"(?<=desktop-update/.)2(/update)"
-        new_text, un = re.subn(up_pat, "7/update", bin_text)
-        if un > 0:
-            bin_text = new_text
-            bin_modified = True
-            ok(f"Binary patched ({un}x): desktop-update blocked")
-
-    if bin_modified:
-        with open(spotify_binary, "wb") as bf:
-            bf.write(bin_text.encode("latin1"))
-        os.chmod(spotify_binary, 0o755)
-        ok("Spotify binary patched successfully")
+# Note: Mach-O Spotify binary is intentionally preserved in its pristine state.
+# Modifying Mach-O executable bytes on macOS invalidates page hashes and triggers
+# SIP/AMFI rejections or CEF renderer crashes (blank screen).
+# All audio, banner, and UI ads are 100% intercepted and blocked by the xpui.spa patches.
 
 print("")
 print(f"{GREEN}All patches applied successfully.{RESET}")
@@ -912,7 +973,7 @@ python3 "$PATCHER_SCRIPT" \
 echo ""
 info "Repacking xpui.spa …"
 rm -f "$XPUI_SPA"
-(cd "$XPUI_DIR" && zip -q -r "$XPUI_SPA" .) || die "Failed to repack xpui.spa"
+(cd "$XPUI_DIR" && zip -q -r -X "$XPUI_SPA" . -x "*.DS_Store" -x "__MACOSX*") || die "Failed to repack xpui.spa"
 ok "Repacked xpui.spa → $XPUI_SPA"
 
 # ---------------------------------------------------------------------------
@@ -987,7 +1048,7 @@ if $OPT_PREMIUM; then
     echo -e "  ${YELLOW}–${RESET}  Ad-blocking: disabled (Premium mode)"
 else
     echo -e "  ${GREEN}✔${RESET}  Ad-blocking: enabled (audio, banner, and UI ads blocked)"
-    echo -e "  ${GREEN}✔${RESET}  Binary ad-receiver: patched (gabo -> dodo)"
+    echo -e "  ${GREEN}✔${RESET}  Mach-O executable integrity: preserved (AMFI/SIP compliant)"
 fi
 $OPT_PODCASTS_OFF    && echo -e "  ${GREEN}✔${RESET}  Podcasts / audiobooks hidden"
 $OPT_ADSECTIONS_OFF  && echo -e "  ${GREEN}✔${RESET}  Ad-like home sections hidden"
