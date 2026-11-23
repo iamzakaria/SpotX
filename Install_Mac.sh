@@ -7,6 +7,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+if [[ -n "$SCRIPT_DIR" ]] && [[ -f "$SCRIPT_DIR/run.sh" ]]; then
+    exec bash "$SCRIPT_DIR/run.sh" --new-theme "$@"
+elif [[ -f "./run.sh" ]]; then
+    exec bash "./run.sh" --new-theme "$@"
+fi
+
 SCRIPT_URL="https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.sh"
 TMP_SCRIPT=$(mktemp /tmp/spotx_mac_XXXXXX.sh)
 trap 'rm -f "$TMP_SCRIPT"' EXIT
