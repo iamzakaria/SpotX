@@ -11,14 +11,15 @@
 
 <h2> 
   <div align="center">
-    <b>Patcher for Spotify Desktop Client on Windows </b>
+    <b>Patcher for Spotify Desktop Client on Windows &amp; macOS (Apple Silicon / Intel)</b>
   </div> 
 </h2>
 
 <p align="center"> •
   <a href="#requirements">Requirements</a> •
   <a href="#features">Features</a> •
-  <a href="#installation--update">Installation</a> •
+  <a href="#installation--update">Installation (Windows)</a> •
+  <a href="#macos-installation">Installation (macOS)</a> •
   <a href="#uninstall">Uninstall</a> •
   <a href="#faq">FAQ</a> •
   <a href="#disclaimer">Disclaimer</a>
@@ -26,9 +27,15 @@
 
 <h1 id="requirements">Requirements</h1>
 
+**Windows:**
 - **OS:** Windows 7-11
 - **Spotify:** [Official desktop version](https://loadspot.vercel.app/) (Microsoft Store version is not suitable)
 - **PowerShell:** 5.1 and above
+
+**macOS (Apple Silicon M-series / Intel):**
+- **OS:** macOS 11 Big Sur or later
+- **Spotify:** [Official macOS desktop version](https://www.spotify.com/download/mac/) (not Mac App Store)
+- **Tools:** `bash`, `python3`, `curl`, `zip`, `unzip`, `codesign` — all pre-installed on modern macOS
 
 <h1 id="features">Features</h1>
 
@@ -38,6 +45,7 @@
 - **Some native experimental features have been changed**
 - **Analytics sending has been disabled** 
 - **Advanced installation [parameters](https://github.com/SpotX-Official/SpotX/discussions/60)**
+- **🍎 Native macOS support** — Apple Silicon (M1/M2/M3/M4) and Intel, with ad-hoc re-signing
 
 <h1 id="installation--update">Installation / Update</h1>
 <h3>Choose installation type:</h3>
@@ -177,11 +185,85 @@ You can specify various parameters for a more flexible installation, more [detai
 
 <h1 id="uninstall">Uninstall</h1>
 
+**Windows:**
 - Just run [Uninstall.bat](https://raw.githack.com/amd64fox/SpotX/main/Uninstall.bat)
 
 or
 
 - Reinstall Spotify ([Full uninstall Spotify](https://github.com/amd64fox/Uninstall-Spotify) recommended)
+
+**macOS:**
+```bash
+# Restore the original xpui.spa from backup
+cp "/Applications/Spotify.app/Contents/Resources/Apps/xpui.spa.bak" \
+   "/Applications/Spotify.app/Contents/Resources/Apps/xpui.spa"
+# Re-sign (required after restoring)
+codesign --force --deep --sign - "/Applications/Spotify.app"
+```
+Or simply reinstall Spotify from the [official website](https://www.spotify.com/download/mac/).
+
+<h1 id="macos-installation">🍎 macOS Installation (Apple Silicon &amp; Intel)</h1>
+
+<h3>Requirements</h3>
+
+- macOS 11 Big Sur or later (Apple Silicon M1/M2/M3/M4 or Intel)
+- Spotify desktop app (from [spotify.com/download/mac](https://www.spotify.com/download/mac/), **not** the Mac App Store)
+- All required tools (`bash`, `python3`, `curl`, `zip`, `codesign`) are pre-installed on macOS
+
+<details>
+<summary><small>Quick installation (New theme, recommended)</small></summary><p>
+
+#### Run the following command in Terminal:
+
+```bash
+bash <(curl -sSL 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.sh') --new-theme
+```
+
+#### or download and run [Install_Mac.sh](https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/Install_Mac.sh)
+
+</p></details>
+
+<details>
+<summary><small>Full installation (all options, no prompts)</small></summary><p>
+
+```bash
+bash <(curl -sSL 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.sh') \
+  --new-theme --podcasts-off --block-update --start-spotify --no-pause
+```
+
+</p></details>
+
+<details>
+<summary><small>Premium account installation (no ad-block)</small></summary><p>
+
+```bash
+bash <(curl -sSL 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.sh') \
+  --premium --new-theme
+```
+
+</p></details>
+
+<details>
+<summary><small>Installing with parameters</small></summary><p>
+
+| Flag | Description |
+|------|-------------|
+| `--premium` | No ad-blocking (for Premium users) |
+| `--podcasts-off` | Hide podcasts / episodes / audiobooks from home |
+| `--adsections-off` | Hide ad-like home sections |
+| `--block-update` | Block Spotify auto-updates (prefs level) |
+| `--no-shortcut` | Do not create a Desktop symlink |
+| `--start-spotify` | Launch Spotify after patching |
+| `--lyrics-block` | Disable native lyrics |
+| `--devtools` | Enable Developer Tools in the client |
+| `--new-theme` | Force new theme (new left/right sidebars) |
+| `--mirror` | Use github.io mirror instead of raw.githubusercontent |
+| `--no-pause` | Skip the "Press Enter to exit" prompt |
+| `--spotify-path <path>` | Custom path to `Spotify.app` |
+| `--custom-patches <path>` | Use a local `patches.json` file |
+| `--lyrics-stat <color>` | Static lyrics colour (e.g. `spotify`, `blue`, `purple`) |
+
+</p></details>
 
 <h1 id="faq">FAQ</h1>
 
